@@ -50,28 +50,32 @@ function App() {
   const handleAdd = async (text) => {
     if (!storage) return;
     const created = await storage.addTodo(text);
-    setTodos((prev) => [created, ...prev]);
+    setTodos((prev) => [created, ...(Array.isArray(prev) ? prev : [])]);
   };
 
   // PUBLIC_INTERFACE
   const handleToggle = async (id, completed) => {
     if (!storage) return;
     const updated = await storage.updateTodo(id, { completed });
-    setTodos((prev) => prev.map((t) => (t.id === id ? updated : t)));
+    setTodos((prev) =>
+      (Array.isArray(prev) ? prev : []).map((t) => (t.id === id ? updated : t))
+    );
   };
 
   // PUBLIC_INTERFACE
   const handleDelete = async (id) => {
     if (!storage) return;
     await storage.deleteTodo(id);
-    setTodos((prev) => prev.filter((t) => t.id !== id));
+    setTodos((prev) => (Array.isArray(prev) ? prev : []).filter((t) => t.id !== id));
   };
 
   // PUBLIC_INTERFACE
   const handleEdit = async (id, text) => {
     if (!storage) return;
     const updated = await storage.updateTodo(id, { text });
-    setTodos((prev) => prev.map((t) => (t.id === id ? updated : t)));
+    setTodos((prev) =>
+      (Array.isArray(prev) ? prev : []).map((t) => (t.id === id ? updated : t))
+    );
   };
 
   const appClass = useMemo(() => `App retro-app`, []);

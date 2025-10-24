@@ -1,15 +1,21 @@
 //
+//
 // Storage service that auto-detects a backend API or falls back to localStorage.
 // Backend auto-detect convention: looks for window.__TODO_API__ or env REACT_APP_TODO_API_URL,
 // and tries a health check on `${baseUrl}/todos`.
 //
 const DEFAULT_STORAGE_KEY = 'retro_todo_items_v1';
 
-function safeParse(json, fallback) {
+/**
+ * Safely parse JSON and ensure the result is an array for our todos storage.
+ * Always returns an array (possibly empty) so callers can safely spread/map.
+ */
+function safeParseArray(json) {
   try {
-    return JSON.parse(json);
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return fallback;
+    return [];
   }
 }
 
@@ -59,7 +65,9 @@ export async function createStorage() {
       async getTodos() {
         const res = await fetch(`${baseUrl}/todos`);
         if (!res.ok) throw new Error('Failed to fetch todos from API');
-        return res.json();
+        const data = await res.json();
+        // Normalize to array
+        return Array.isArray(data) ? data : [];
       },
       // PUBLIC_INTERFACE
       async addTodo(text) {
@@ -69,7 +77,19 @@ export async function createStorage() {
           body: JSON.stringify({ text }),
         });
         if (!res.ok) throw new Error('Failed to add todo via API');
-        return res.json();
+        const created = await res.json();
+        // Ensure shape
+        return created && typeof created === 'object'
+          ? {
+              id: created.id ?? (Date.now().toString(36) + Math.random().toString(36).slice(2, 7)),
+              text: created.text ?? String(text),
+              completed: !!created.completed,
+            }
+          : {
+              id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+              text: String(text),
+              completed: false,
+            };
       },
       // PUBLIC_INTERFACE
       async updateTodo(id, updates) {
@@ -79,7 +99,15 @@ export async function createStorage() {
           body: JSON.stringify(updates),
         });
         if (!res.ok) throw new Error('Failed to update todo via API');
-        return res.json();
+        const updated = await res.json();
+        // Ensure shape
+        return updated && typeof updated === 'object'
+          ? {
+              id: updated.id ?? id,
+              text: updated.text ?? '',
+              completed: !!updated.completed,
+            }
+          : { id, ...(updates || {}), completed: !!(updates && updates.completed) };
       },
       // PUBLIC_INTERFACE
       async deleteTodo(id) {
@@ -95,11 +123,13 @@ export async function createStorage() {
   const read = () => {
     if (!hasWindow()) return [];
     const raw = window.localStorage.getItem(DEFAULT_STORAGE_KEY);
-    return safeParse(raw, []);
+    return safeParseArray(raw);
   };
   const write = (items) => {
     if (!hasWindow()) return;
-    window.localStorage.setItem(DEFAULT_STORAGE_KEY, JSON.stringify(items));
+    // Guard against non-array writes; always persist arrays
+    const arr = Array.isArray(items) ? items : [];
+    window.localStorage.setItem(DEFAULT_STORAGE_KEY, JSON.stringify(arr));
   };
 
   return {
@@ -109,27 +139,29 @@ export async function createStorage() {
     },
     // PUBLIC_INTERFACE
     async addTodo(text) {
-      const items = read();
+      const items = read(); // guaranteed array
       const newItem = {
         id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
         text,
         completed: false,
       };
-      const next = [newItem, ...items];
+      const next = [newItem, ...(Array.isArray(items) ? items : [])];
       write(next);
       return newItem;
     },
     // PUBLIC_INTERFACE
     async updateTodo(id, updates) {
-      const items = read();
-      const next = items.map((t) => (t.id === id ? { ...t, ...updates } : t));
+      const items = read(); // guaranteed array
+      const next = (Array.isArray(items) ? items : []).map((t) =>
+        t && t.id === id ? { ...t, ...(updates || {}) } : t
+      );
       write(next);
-      return next.find((t) => t.id === id);
+      return next.find((t) => t && t.id === id);
     },
     // PUBLIC_INTERFACE
     async deleteTodo(id) {
-      const items = read();
-      const next = items.filter((t) => t.id !== id);
+      const items = read(); // guaranteed array
+      const next = (Array.isArray(items) ? items : []).filter((t) => t && t.id !== id);
       write(next);
       return true;
     },
